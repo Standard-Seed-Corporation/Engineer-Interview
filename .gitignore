@@ -205,3 +205,14 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Vector Database
+.chroma_db/
+*.faiss
+
+# Knowledge Graph outputs
+knowledge_graph.json
+knowledge_graph_visualization.png
+
+# Temporary build scripts
+build_knowledge_graph.py
