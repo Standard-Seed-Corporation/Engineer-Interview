@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Enhanced Knowledge Graph Builder for PDF Documents
+Knowledge Graph Builder for PDF Documents
 
 This script extracts detailed information from PDFs, identifies entities,
 topics, methodologies, and key findings to build comprehensive knowledge graphs.
 """
 
-import os
 import json
 import re
 from pathlib import Path
@@ -24,14 +23,14 @@ except ImportError:
 
 def extract_text_from_file(file_path):
     """Extract text from PDF files"""
-    from pathlib import Path
+    
     p = Path(file_path)
     suffix = p.suffix.lower()
 
     if suffix == '.pdf':
         try:
             from PyPDF2 import PdfReader
-        except Exception:
+        except ImportError:
             print("Warning: PyPDF2 not installed. Install with: pip3 install PyPDF2")
             return ""
         try:
@@ -173,15 +172,15 @@ def build_knowledge_graph(pdfs_dir):
             print(f"  ⚠️  Could not extract text from {file_path.name}")
             continue
 
-        print(f"  ✓ Extracted {len(text)} characters")
+        print(f"   Extracted {len(text)} characters")
 
         # Extract metadata
         metadata = extract_metadata(text, doc_name)
-        print(f"  ✓ Found {len(metadata['authors'])} authors, date: {metadata['date']}")
+        print(f"   Found {len(metadata['authors'])} authors, date: {metadata['date']}")
 
         # Extract topics and entities
         topics, entities = extract_entities_and_topics(text, doc_name)
-        print(f"  ✓ Identified {len(topics)} topics and {len(entities)} entity categories")
+        print(f"   Identified {len(topics)} topics and {len(entities)} entity categories")
 
         # Add document node with detailed attributes
         G.add_node(doc_name, 
@@ -307,13 +306,13 @@ def visualize_knowledge_graph(G, output_file='knowledge_graph_visualization.png'
 
     # Draw nodes by type
     nx.draw_networkx_nodes(G_vis, pos, nodelist=doc_nodes,
-                          node_color='#FF6B6B', node_size=5000,
+                          node_color="#00FFA2", node_size=5000,
                           alpha=0.9, label='Documents', node_shape='s')
     nx.draw_networkx_nodes(G_vis, pos, nodelist=topic_nodes,
-                          node_color='#4ECDC4', node_size=2000,
+                          node_color="#0D00FC", node_size=2000,
                           alpha=0.7, label='Topics')
     nx.draw_networkx_nodes(G_vis, pos, nodelist=entity_nodes,
-                          node_color='#95E1D3', node_size=1500,
+                          node_color="#FF0000", node_size=1500,
                           alpha=0.6, label='Entities')
 
     # Draw edges with varying thickness
@@ -326,7 +325,7 @@ def visualize_knowledge_graph(G, output_file='knowledge_graph_visualization.png'
     # Draw labels for document nodes
     doc_labels = {n: n.replace('_', ' ').title()[:15] for n in doc_nodes}
     nx.draw_networkx_labels(G_vis, pos, labels=doc_labels, 
-                           font_size=10, font_weight='bold', font_color='white')
+                           font_size=10, font_weight='bold', font_color='black')
 
     plt.title('PDF Knowledge Graph', fontsize=24, fontweight='bold', pad=20)
     plt.legend(scatterpoints=1, loc='upper left', fontsize=14, framealpha=0.9)
@@ -337,56 +336,186 @@ def visualize_knowledge_graph(G, output_file='knowledge_graph_visualization.png'
     print(f"✅ Visualization saved to {output_file}")
     plt.close()
 
+def visualize_knowledge_graph_enhanced(
+    G,
+    output_prefix='knowledge_graph',
+    max_topics=60,
+    max_entities=150,
+    layout='spring'
+):
+    if not HAS_DEPS:
+        print("Visualization skipped (missing deps)")
+        return
 
-# def generate_summary_report(document_data, output_file='knowledge_graph_summary.txt'):
-#     """Generate a detailed summary report"""
-#     with open(output_file, 'w') as f:
-#         f.write("="*80 + "\n")
-#         f.write("PDF KNOWLEDGE GRAPH SUMMARY REPORT\n")
-#         f.write("="*80 + "\n\n")
+    # Derive subsets
+    doc_nodes = [n for n,d in G.nodes(data=True) if d.get('type') == 'document']
+    topic_nodes = [n for n,d in G.nodes(data=True) if d.get('type') == 'topic'][:max_topics]
+    entity_nodes = [n for n,d in G.nodes(data=True) if d.get('type') == 'entity'][:max_entities]
 
-#         f.write(f"Total Documents Processed: {len(document_data)}\n\n")
+    keep = set(doc_nodes + topic_nodes + entity_nodes)
+    H = G.subgraph(keep).copy()
 
-#         for doc_name, data in sorted(document_data.items()):
-#             f.write(f"\n{'─'*80}\n")
-#             f.write(f"DOCUMENT: {doc_name}\n")
-#             f.write(f"{'─'*80}\n")
-#             f.write(f"File: {data['file']}\n")
-#             f.write(f"Size: {data['text_length']:,} characters, {data['word_count']:,} words\n\n")
+    # Compute degrees for scaling
+    deg = H.degree()
+    max_deg = max((v for _,v in deg), default=1)
 
-#             metadata = data.get('metadata', {})
-#             if metadata.get('authors'):
-#                 f.write(f"Authors: {', '.join(metadata['authors'])}\n")
-#             if metadata.get('date'):
-#                 f.write(f"Date: {metadata['date']}\n")
-#             if metadata.get('institutions'):
-#                 f.write(f"Institutions: {'; '.join(metadata['institutions'])}\n")
-#             if metadata.get('abstract'):
-#                 f.write(f"\nAbstract: {metadata['abstract']}...\n")
+    # Optional simple community detection (might be expensive on large graphs)
+    try:
+        from networkx.algorithms.community import greedy_modularity_communities
+        comms = list(greedy_modularity_communities(H))
+        community_map = {}
+        for i, c in enumerate(comms):
+            for n in c:
+                community_map[n] = i
+    except Exception:
+        community_map = {}
 
-#             f.write(f"\nTop Topics ({len(data['topics'])} total):\n")
-#             for topic in data['topics'][:10]:
-#                 f.write(f"  • {topic}\n")
+    # Color palettes
+    base_colors = {
+        'document': "#1b998b",
+        'topic': "#2d7dd2",
+        'entity': "#e84855",
+        'entity_category': "#ffb400",
+        'author': "#6a4c93"
+    }
+    community_colors = [
+        "#264653","#2a9d8f","#8ab17d","#e9c46a","#f4a261",
+        "#e76f51","#6d597a","#b56576","#355070","#0081a7"
+    ]
 
-#             entities = data.get('entities', {})
-#             if entities:
-#                 f.write(f"\nEntity Categories:\n")
-#                 for cat, items in entities.items():
-#                     if items:
-#                         f.write(f"  {cat}: {', '.join(set(items)[:5])}\n")
+    def node_color(n, data):
+        if community_map:
+            idx = community_map.get(n, 0) % len(community_colors)
+            return community_colors[idx]
+        return base_colors.get(data.get('type'), "#888888")
 
-#             if entities.get('findings'):
-#                 f.write(f"\nKey Findings (sample):\n")
-#                 for finding in entities.get('findings', [])[:3]:
-#                     f.write(f"  • {finding[:100]}...\n")
+    # Choose layout
+    if layout == 'kamada':
+        pos = nx.kamada_kawai_layout(H)
+    elif layout == 'circular':
+        pos = nx.circular_layout(H)
+    else:
+        pos = nx.spring_layout(H, k=2, iterations=150, seed=42)
 
-#     print(f"✅ Summary report saved to {output_file}")
+    # Figure 1: Mixed graph
+    plt.figure(figsize=(26,22))
+    node_sizes = []
+    node_colors = []
+    for n, data in H.nodes(data=True):
+        d = deg[n]
+        scale = 400 + (2200 * (d / max_deg))
+        if data.get('type') == 'document':
+            scale *= 1.4
+        node_sizes.append(scale)
+        node_colors.append(node_color(n, data))
 
+    nx.draw_networkx_nodes(
+        H, pos,
+        node_size=node_sizes,
+        node_color=node_colors,
+        linewidths=0.6,
+        edgecolors='white',
+        alpha=0.92
+    )
+
+    # Edge styling
+    edge_colors = []
+    edge_widths = []
+    for u,v,data in H.edges(data=True):
+        rel = data.get('relation')
+        if rel == 'discusses':
+            edge_colors.append("#2d7dd2")
+            edge_widths.append(1.4)
+        elif rel == 'mentions':
+            edge_colors.append("#e84855")
+            edge_widths.append(1.0)
+        elif rel == 'authored_by':
+            edge_colors.append("#6a4c93")
+            edge_widths.append(1.2)
+        elif rel == 'related':
+            edge_colors.append("#1b998b")
+            edge_widths.append(2.0)
+        else:
+            edge_colors.append("#999999")
+            edge_widths.append(0.6)
+
+    nx.draw_networkx_edges(
+        H, pos,
+        edge_color=edge_colors,
+        width=edge_widths,
+        alpha=0.35
+    )
+
+    # Labels only for documents + high degree topics
+    label_nodes = {}
+    for n,data in H.nodes(data=True):
+        if data.get('type') == 'document':
+            label_nodes[n] = data.get('label', n)[:22]
+        elif data.get('type') == 'topic' and deg[n] > 1:
+            label_nodes[n] = data.get('label', n)[:18]
+    nx.draw_networkx_labels(
+        H, pos,
+        labels=label_nodes,
+        font_size=11,
+        font_weight='semibold',
+        font_color='black'
+    )
+
+    plt.title("Enhanced PDF Knowledge Graph", fontsize=28, fontweight='bold', pad=24)
+    plt.axis('off')
+    plt.tight_layout()
+    out_file_main = f"{output_prefix}_enhanced.png"
+    plt.savefig(out_file_main, dpi=170, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"✅ Enhanced visualization saved: {out_file_main}")
+
+    # Figure 2: Document–Topic heat map (adjacency)
+    doc_topic_edges = [(u,v) for u,v,d in G.edges(data=True) if d.get('relation') == 'discusses']
+    if doc_topic_edges:
+        docs = sorted({u for u,v in doc_topic_edges if G.nodes[u].get('type') == 'document'})
+        topics = sorted({v for u,v in doc_topic_edges if G.nodes[v].get('type') == 'topic'})
+        # Limit
+        topics = topics[:max_topics]
+        import numpy as np
+        mat = np.zeros((len(docs), len(topics)), dtype=int)
+        topic_index = {t:i for i,t in enumerate(topics)}
+        doc_index = {d:i for i,d in enumerate(docs)}
+        for u,v in doc_topic_edges:
+            if u in doc_index and v in topic_index:
+                mat[doc_index[u], topic_index[v]] += 1
+
+        plt.figure(figsize=(1.4+0.35*len(topics), 1.4+0.6*len(docs)))
+        plt.imshow(mat, aspect='auto', cmap='viridis')
+        plt.colorbar(label='Mentions / weight')
+        plt.yticks(range(len(docs)), [d[:20] for d in docs], fontsize=9)
+        plt.xticks(range(len(topics)), [G.nodes[t].get('label', t)[:14] for t in topics], rotation=90, fontsize=9)
+        plt.title("Document–Topic Matrix", fontsize=20, pad=16)
+        plt.tight_layout()
+        out_file_matrix = f"{output_prefix}_doc_topic_matrix.png"
+        plt.savefig(out_file_matrix, dpi=160, bbox_inches='tight')
+        plt.close()
+        print(f"✅ Matrix visualization saved: {out_file_matrix}")
+
+    # Figure 3: Degree distribution
+    deg_values = [v for _,v in G.degree()]
+    if deg_values:
+        import numpy as np
+        plt.figure(figsize=(10,6))
+        plt.hist(deg_values, bins=min(30, max(5, int(np.sqrt(len(deg_values))))), color="#2d7dd2", alpha=0.85)
+        plt.title("Node Degree Distribution", fontsize=20)
+        plt.xlabel("Degree")
+        plt.ylabel("Count")
+        plt.grid(alpha=0.25)
+        out_file_deg = f"{output_prefix}_degree_hist.png"
+        plt.tight_layout()
+        plt.savefig(out_file_deg, dpi=140)
+        plt.close()
+        print(f"✅ Degree histogram saved: {out_file_deg}")
 
 def main():
     """Main function"""
     print("="*60)
-    print("Enhanced PDF Knowledge Graph Builder")
+    print("PDF Knowledge Graph Builder")
     print("="*60)
 
     pdfs_dir = 'pdfs'
@@ -398,13 +527,13 @@ def main():
         print(f"Please place your PDF files in {pdfs_dir}/ and run again")
         return 1
 
-    print("\n📊 Building enhanced knowledge graph from documents...")
+    print("\n Building enhanced knowledge graph from documents...")
     G, document_data = build_knowledge_graph(pdfs_dir)
 
     if G is None:
         return 1
 
-    print(f"\n📈 Knowledge Graph Statistics:")
+    print(f"\n Knowledge Graph Statistics:")
     print(f"  Total nodes: {G.number_of_nodes()}")
     print(f"  Total edges: {G.number_of_edges()}")
     print(f"  Total documents: {len(document_data)}")
@@ -424,12 +553,10 @@ def main():
     # Create visualization
     if HAS_DEPS:
         visualize_knowledge_graph(G)
-
-    # Generate summary report
-    # generate_summary_report(document_data)
+        visualize_knowledge_graph_enhanced(G, layout='spring')
 
     # Print document summary
-    print("\n📄 Document Summary:")
+    print("\n Document Summary:")
     for doc_name, data in sorted(document_data.items()):
         print(f"  {doc_name}:")
         print(f"    Words: {data['word_count']:,}")
@@ -443,7 +570,9 @@ def main():
     print("  - knowledge_graph.json")
     if HAS_DEPS:
         print("  - knowledge_graph_visualization.png")
-    print("  - knowledge_graph_summary.txt")
+        print("  - knowledge_graph_enhanced.png")
+        print("  - knowledge_graph_doc_topic_matrix.png")
+        print("  - knowledge_graph_degree_hist.png")
 
     return 0
 
