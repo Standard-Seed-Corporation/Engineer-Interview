@@ -366,7 +366,7 @@ class RAGChatbot:
                 )
             elif self.chunking_strategy == "semantic":
                 chunks = self.chunker.semantic_split(text, chunk_size=self.chunk_size)
-            else:  # hybrid (default)
+            else:  
                 chunks = self.chunker.hybrid_split(
                     text,
                     chunk_size=self.chunk_size,
